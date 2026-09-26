@@ -32,13 +32,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Upload a story recap and write a full open-ended novel in English, Hindi and Marathi — each language generated independently.",
+          "Upload a story recap and write a full open-ended novel in English, Hindi and Marathi — with natural Hindi and Marathi retellings.",
       },
       { property: "og:title", content: "Hive Archive — Recap to Novel in 3 Languages" },
       {
         property: "og:description",
         content:
-          "Upload a story recap and write a full open-ended novel in English, Hindi and Marathi — each language generated independently.",
+          "Upload a story recap and write a full open-ended novel in English, Hindi and Marathi — with natural Hindi and Marathi retellings.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -123,14 +123,14 @@ function Index() {
         patch(lang, { ...emptyState, status: "running", step: currentStep });
 
         if (lang !== "en") {
-          // Hindi and Marathi are faithful translations of the finished English parts.
+          // Hindi and Marathi retell the finished English parts in natural prose.
           for (let index = 0; index < totalParts; index++) {
             if (cancelled.current) return;
             setStep(`Waiting for English episode ${Math.floor(index / 2) + 1}`);
             const english = await feed.get(index);
-            if (english === null) throw new Error("The English run stopped, so translation stopped too.");
+            if (english === null) throw new Error("The English run stopped, so this version stopped too.");
             if (cancelled.current) return;
-            setStep(`Translating episode ${Math.floor(index / 2) + 1} of ${total} (part ${(index % 2) + 1})`);
+            setStep(`Retelling episode ${Math.floor(index / 2) + 1} of ${total} (part ${(index % 2) + 1})`);
             const { text } = await translatePart(
               { lang, english, previousTranslated: collected.at(-1) ?? "" },
               progress,
@@ -239,8 +239,8 @@ function Index() {
         </h1>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
           Drop in your episode recap. Three separate Agnes 3.0 Flash keys write the same story as a
-          long, scene-driven novel with a deliberate open ending — one in English, one in Hindi, one
-          in Marathi — and you download all three as text files.
+          long, scene-driven novel with a deliberate open ending. Hindi and Marathi follow the
+          English story in natural, everyday language, not word-for-word. Download all three as text files.
         </p>
       </header>
 
@@ -407,7 +407,7 @@ function Index() {
                     onClick={() => {
                       cancelled.current = false;
                       {
-                        // Retrying one language: translations reuse the English text already written.
+                         // Retrying one language: retellings reuse the English text already written.
                         const feed = createFeed(() => cancelled.current);
                         state.en.episodes.forEach((t) => feed.push(t));
                         if (lang.code !== "en" && state.en.status !== "running") feed.close();
