@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+Retell Hindi and Marathi scene-by-scene from each finished English part rather than translating line-by-line; the shared story stays aligned while each language uses natural prose.
