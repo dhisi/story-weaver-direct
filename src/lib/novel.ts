@@ -158,20 +158,24 @@ export async function generateEpisodePart(
         ],
       });
 
-    let text = cleanNovelText(await createDraft());
-    let problems = findNovelQualityProblems(text, data.lang, data.wordsPerPart, data.part === 1);
-    if (problems.length) {
-      const retryText = cleanNovelText(await createDraft(problems.join(", ")));
-      const retryProblems = findNovelQualityProblems(retryText, data.lang, data.wordsPerPart, data.part === 1);
-      // Keep whichever draft is cleaner.
-      if (retryProblems.length <= problems.length) {
-        text = retryText;
-        problems = retryProblems;
-      }
+  let text = cleanNovelText(await createDraft());
+  let problems = findNovelQualityProblems(text, data.lang, data.wordsPerPart, data.part === 1);
+  // Up to two rewrites; always keep the cleanest draft so the story never breaks its chain.
+  for (let attempt = 0; attempt < 2 && problems.length; attempt += 1) {
+    const retryText = cleanNovelText(await createDraft(problems.join(", ")));
+    const retryProblems = findNovelQualityProblems(
+      retryText,
+      data.lang,
+      data.wordsPerPart,
+      data.part === 1,
+    );
+    if (retryProblems.length <= problems.length) {
+      text = retryText;
+      problems = retryProblems;
     }
-    if (problems.length && !hasOnlySoftProblems(problems)) {
-      throw new Error(`The writing quality check rejected this part: ${problems.join(", ")}. Please retry this language.`);
-    }
+    if (hasOnlySoftProblems(problems)) break;
+  }
 
-  return { text };
+  return { text, problems };
 }
+
