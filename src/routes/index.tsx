@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { generateOutline, generateEpisodePart, type LangCode } from "@/lib/novel.functions";
+import { CancelledError, type AgnesProgress } from "@/lib/agnes";
+import { generateOutline, generateEpisodePart, type LangCode } from "@/lib/novel";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
