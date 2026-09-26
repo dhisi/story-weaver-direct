@@ -406,7 +406,13 @@ function Index() {
                     className="btn-ghost text-xs"
                     onClick={() => {
                       cancelled.current = false;
-                      void runLanguage(lang.code, recap, episodes, wordsPerEpisode);
+                      {
+                        // Retrying one language: translations reuse the English text already written.
+                        const feed = createFeed(() => cancelled.current);
+                        state.en.episodes.forEach((t) => feed.push(t));
+                        if (lang.code !== "en" && state.en.status !== "running") feed.close();
+                        void runLanguage(lang.code, recap, episodes, wordsPerEpisode, feed);
+                      }
                     }}
                   >
                     Rewrite this language
