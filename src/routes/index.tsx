@@ -65,9 +65,6 @@ function download(filename: string, text: string) {
 }
 
 function Index() {
-  const outlineFn = useServerFn(generateOutline);
-  const episodeFn = useServerFn(generateEpisodePart);
-
   const [recap, setRecap] = useState("");
   const [recapName, setRecapName] = useState("");
   const [episodes, setEpisodes] = useState(30);
@@ -88,23 +85,37 @@ function Index() {
   const runLanguage = useCallback(
     async (lang: LangCode, source: string, total: number, words: number) => {
       const collected: string[] = [];
+      // Everything runs in this browser tab: no server, no worker, no time limit.
+      let currentStep = "Planning the story";
+      const setStep = (step: string) => {
+        currentStep = step;
+        patch(lang, { step });
+      };
+      const progress: AgnesProgress = {
+        isCancelled: () => cancelled.current,
+        onCooldown: (secondsLeft, reason) =>
+          patch(lang, {
+            step: `Key limit (${reason}) — resuming in ${secondsLeft}s · ${currentStep}`,
+          }),
+      };
+
       try {
-        patch(lang, { ...emptyState, status: "running", step: "Planning the story" });
-        const { outline } = await outlineFn({
-          data: { lang, recap: source, episodes: total },
-        });
+        patch(lang, { ...emptyState, status: "running", step: currentStep });
+        const { outline } = await generateOutline(
+          { lang, recap: source, episodes: total },
+          progress,
+        );
         if (cancelled.current) return;
         patch(lang, { outline, progress: 1 / (total * 2 + 1) });
 
         for (let episode = 1; episode <= total; episode++) {
           for (const part of [1, 2] as const) {
             if (cancelled.current) return;
-            patch(lang, {
-              step: `Writing episode ${episode} of ${total} (part ${part})`,
-            });
+            setStep(`Writing episode ${episode} of ${total} (part ${part})`);
+            // Resumes exactly where it stopped: the tail of the last finished part.
             const previousTail = collected.at(-1)?.slice(-6000) ?? "";
-            const request = {
-              data: {
+            const { text } = await generateEpisodePart(
+              {
                 lang,
                 recap: source,
                 outline,
@@ -114,18 +125,8 @@ function Index() {
                 wordsPerPart: Math.round(words / 2),
                 previousTail,
               },
-            };
-            let text: string;
-            try {
-              ({ text } = await episodeFn(request));
-            } catch (firstError) {
-              // One client-side retry for transient failures (e.g. empty replies) before stopping this language.
-              const message = firstError instanceof Error ? firstError.message : "";
-              if (/unauthorized|credits|Missing API key/i.test(message) || cancelled.current) throw firstError;
-              patch(lang, { step: `Retrying episode ${episode} (part ${part})` });
-              await new Promise((r) => setTimeout(r, 3000));
-              ({ text } = await episodeFn(request));
-            }
+              progress,
+            );
             collected.push(text.trim());
             patch(lang, {
               episodes: [...collected],
@@ -136,11 +137,16 @@ function Index() {
 
         patch(lang, { status: "done", step: "Novel complete", progress: 1 });
       } catch (error) {
+        if (error instanceof CancelledError) {
+          patch(lang, { status: "idle", step: "Stopped", episodes: [...collected] });
+          return;
+        }
         patch(lang, {
           status: "error",
           step: "Stopped",
           episodes: [...collected],
           error: error instanceof Error ? error.message : "Something went wrong.",
+
         });
       }
     },
