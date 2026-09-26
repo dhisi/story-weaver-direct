@@ -146,11 +146,11 @@ function Index() {
           step: "Stopped",
           episodes: [...collected],
           error: error instanceof Error ? error.message : "Something went wrong.",
-
         });
       }
     },
-    [episodeFn, outlineFn, patch],
+    [patch],
+
   );
 
   const start = useCallback(() => {
