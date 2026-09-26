@@ -83,10 +83,9 @@ function Index() {
   const busy = LANGS.some(({ code }) => state[code].status === "running");
 
   const runLanguage = useCallback(
-    async (lang: LangCode, source: string, total: number, words: number) => {
+    async (lang: LangCode, source: string, total: number, words: number, feed: Feed) => {
       const collected: string[] = [];
-      // Everything runs in this browser tab: no server, no worker, no time limit.
-      let currentStep = "Planning the story";
+      let currentStep = lang === "en" ? "Planning the story" : "Waiting for the English chapter";
       const setStep = (step: string) => {
         currentStep = step;
         patch(lang, { step });
@@ -98,21 +97,39 @@ function Index() {
             step: `Key limit (${reason}) — resuming in ${secondsLeft}s · ${currentStep}`,
           }),
       };
+      const totalParts = total * 2;
 
       try {
         patch(lang, { ...emptyState, status: "running", step: currentStep });
-        const { outline } = await generateOutline(
-          { lang, recap: source, episodes: total },
-          progress,
-        );
+
+        if (lang !== "en") {
+          // Hindi and Marathi are faithful translations of the finished English parts.
+          for (let index = 0; index < totalParts; index++) {
+            if (cancelled.current) return;
+            setStep(`Waiting for English episode ${Math.floor(index / 2) + 1}`);
+            const english = await feed.get(index);
+            if (english === null) throw new Error("The English run stopped, so translation stopped too.");
+            if (cancelled.current) return;
+            setStep(`Translating episode ${Math.floor(index / 2) + 1} of ${total} (part ${(index % 2) + 1})`);
+            const { text } = await translatePart(
+              { lang, english, previousTranslated: collected.at(-1) ?? "" },
+              progress,
+            );
+            collected.push(text.trim());
+            patch(lang, { episodes: [...collected], progress: (index + 1) / totalParts });
+          }
+          patch(lang, { status: "done", step: "Novel complete", progress: 1 });
+          return;
+        }
+
+        const { outline } = await generateOutline({ lang, recap: source, episodes: total }, progress);
         if (cancelled.current) return;
-        patch(lang, { outline, progress: 1 / (total * 2 + 1) });
+        patch(lang, { outline, progress: 1 / (totalParts + 1) });
 
         for (let episode = 1; episode <= total; episode++) {
           for (const part of [1, 2] as const) {
             if (cancelled.current) return;
             setStep(`Writing episode ${episode} of ${total} (part ${part})`);
-            // Resumes exactly where it stopped: the tail of the last finished part.
             const previousTail = collected.at(-1)?.slice(-6000) ?? "";
             const { text } = await generateEpisodePart(
               {
@@ -128,15 +145,17 @@ function Index() {
               progress,
             );
             collected.push(text.trim());
+            feed.push(text.trim());
             patch(lang, {
               episodes: [...collected],
-              progress: ((episode - 1) * 2 + part + 1) / (total * 2 + 1),
+              progress: ((episode - 1) * 2 + part + 1) / (totalParts + 1),
             });
           }
         }
 
         patch(lang, { status: "done", step: "Novel complete", progress: 1 });
       } catch (error) {
+        if (lang === "en") feed.close();
         if (error instanceof CancelledError) {
           patch(lang, { status: "idle", step: "Stopped", episodes: [...collected] });
           return;
@@ -150,15 +169,14 @@ function Index() {
       }
     },
     [patch],
-
   );
 
   const start = useCallback(() => {
     if (!recap.trim()) return;
     cancelled.current = false;
-    // Three fully independent runs — one API key each, no shared state.
+    const feed = createFeed(() => cancelled.current);
     for (const { code } of LANGS) {
-      void runLanguage(code, recap, episodes, wordsPerEpisode);
+      void runLanguage(code, recap, episodes, wordsPerEpisode, feed);
     }
   }, [recap, episodes, wordsPerEpisode, runLanguage]);
 
