@@ -179,3 +179,72 @@ export async function generateEpisodePart(
   return { text, problems };
 }
 
+
+const TRANSLATE_RULES: Record<"hi" | "mr", string> = {
+  hi: "You are an award-winning literary translator from English into natural, modern Hindi (Devanagari only). Translate faithfully, paragraph by paragraph: keep every event, line of dialogue and detail, add nothing, drop nothing. Use simple everyday Hindi that people actually speak and read in modern novels — not Sanskritised, not word-for-word. Every word must be a real, correctly spelled Hindi word. Transliterate character names consistently into Devanagari. Never output any Latin letters or other scripts. Output only the translation as plain text, keeping the blank lines between paragraphs.",
+  mr: "You are an award-winning literary translator from English into natural, modern Marathi (Devanagari only). Translate faithfully, paragraph by paragraph: keep every event, line of dialogue and detail, add nothing, drop nothing. Use simple, correct, everyday Marathi as written in modern Marathi novels — proper Marathi grammar and verb forms, not Hindi, not word-for-word. Every word must be a real, correctly spelled Marathi word; never invent words. Transliterate character names consistently into Devanagari. Never output any Latin letters or other scripts. Output only the translation as plain text, keeping the blank lines between paragraphs.",
+};
+
+function chunkParagraphs(text: string, maxWords = 700): string[] {
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let count = 0;
+  for (const para of text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)) {
+    const w = para.split(/\s+/).length;
+    if (count + w > maxWords && current.length) {
+      chunks.push(current.join("\n\n"));
+      current = [];
+      count = 0;
+    }
+    current.push(para);
+    count += w;
+  }
+  if (current.length) chunks.push(current.join("\n\n"));
+  return chunks;
+}
+
+function badTranslation(text: string, source: string): boolean {
+  const dev = text.match(/[\u0900-\u097f]/g)?.length ?? 0;
+  const lat = text.match(/[A-Za-z]/g)?.length ?? 0;
+  const srcWords = source.split(/\s+/).length;
+  const outWords = text.split(/\s+/).filter(Boolean).length;
+  return dev < 50 || lat > dev * 0.05 || outWords < srcWords * 0.5 || /(.)\1{15,}/u.test(text);
+}
+
+/** Translates one finished English part into Hindi/Marathi, chunk by chunk, keeping names consistent. */
+export async function translatePart(
+  data: { lang: "hi" | "mr"; english: string; previousTranslated: string },
+  progress?: AgnesProgress | undefined,
+) {
+  const apiKey = getApiKey(data.lang);
+  const out: string[] = [];
+  for (const chunk of chunkParagraphs(data.english)) {
+    const context = (out.at(-1) ?? data.previousTranslated).slice(-1500);
+    const call = (temperature: number) =>
+      agnesChat({
+        apiKey,
+        progress,
+        maxTokens: 8000,
+        temperature,
+        messages: [
+          { role: "system", content: TRANSLATE_RULES[data.lang] },
+          {
+            role: "user",
+            content: [
+              context
+                ? `Previous translated passage (for name spelling and tone only — do NOT repeat it):\n"""\n${context}\n"""\n`
+                : "",
+              "Heading lines like \"Episode 3: Title\" become \"एपिसोड ३: <translated title>\".",
+              `Translate this English passage:\n"""\n${chunk}\n"""`,
+            ].join("\n"),
+          },
+        ],
+      });
+    let text = cleanNovelText(await call(0.3));
+    for (let i = 0; i < 2 && badTranslation(text, chunk); i++) {
+      text = cleanNovelText(await call(0.2));
+    }
+    out.push(text.replace(/[A-Za-z]+/g, "").replace(/[ \t]{2,}/g, " "));
+  }
+  return { text: out.join("\n\n") };
+}
