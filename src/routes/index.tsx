@@ -2,7 +2,27 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { CancelledError, type AgnesProgress } from "@/lib/agnes";
-import { generateOutline, generateEpisodePart, type LangCode } from "@/lib/novel";
+import { generateOutline, generateEpisodePart, translatePart, type LangCode } from "@/lib/novel";
+
+type Feed = { push: (t: string) => void; close: () => void; get: (i: number) => Promise<string | null> };
+
+/** English parts are published here; Hindi/Marathi wait on them in order. */
+function createFeed(isCancelled: () => boolean): Feed {
+  const parts: string[] = [];
+  let closed = false;
+  return {
+    push: (t) => void parts.push(t),
+    close: () => void (closed = true),
+    get: async (i) => {
+      while (parts[i] === undefined) {
+        if (closed || isCancelled()) return null;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      return parts[i];
+    },
+  };
+}
+
 
 
 export const Route = createFileRoute("/")({
