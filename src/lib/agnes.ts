@@ -42,9 +42,9 @@ class CooldownError extends Error {}
 
 export type AgnesProgress = {
   /** Called with remaining seconds while a key is cooling down. */
-  onCooldown?: (secondsLeft: number, reason: string) => void;
+  onCooldown?: ((secondsLeft: number, reason: string) => void) | undefined;
   /** Return true to abort the whole run. */
-  isCancelled?: () => boolean;
+  isCancelled?: (() => boolean) | undefined;
 };
 
 async function sleep(ms: number) {
@@ -68,9 +68,9 @@ async function cooldown(reason: string, progress: AgnesProgress) {
 export async function agnesChat(opts: {
   apiKey: string;
   messages: AgnesMessage[];
-  maxTokens?: number;
-  temperature?: number;
-  progress?: AgnesProgress;
+  maxTokens?: number | undefined;
+  temperature?: number | undefined;
+  progress?: AgnesProgress | undefined;
 }): Promise<string> {
   const progress = opts.progress ?? {};
   const baseTokens = opts.maxTokens ?? 8000;
@@ -109,7 +109,7 @@ async function agnesChatOnce(opts: {
   apiKey: string;
   messages: AgnesMessage[];
   maxTokens: number;
-  temperature?: number;
+  temperature?: number | undefined;
 }): Promise<string> {
   let response: Response;
   try {

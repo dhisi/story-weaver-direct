@@ -45,7 +45,7 @@ const HEADING_RULE: Record<LangCode, string> = {
 /** Step 1 — story bible + episode outline. One call, one key, one language. */
 export async function generateOutline(
   data: { lang: LangCode; recap: string; episodes: number; title?: string },
-  progress?: AgnesProgress,
+  progress?: AgnesProgress | undefined,
 ) {
     const apiKey = getApiKey(data.lang);
 
@@ -94,7 +94,7 @@ export async function generateEpisodePart(
     wordsPerPart: number;
     previousTail: string;
   },
-  progress?: AgnesProgress,
+  progress?: AgnesProgress | undefined,
 ) {
     const apiKey = getApiKey(data.lang);
 
