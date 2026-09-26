@@ -9,4 +9,4 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-Retell Hindi and Marathi scene-by-scene from each finished English part rather than translating line-by-line; the shared story stays aligned while each language uses natural prose.
+Retell Hindi and Marathi scene-by-scene from each finished English part rather than translating line-by-line, because the versions must share plot continuity while allowing native phrasing.
