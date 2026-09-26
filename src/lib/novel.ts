@@ -183,21 +183,21 @@ export async function generateEpisodePart(
 const TRANSLATE_RULES: Record<"hi" | "mr", string> = {
   hi: [
     "You are a contemporary Hindi novelist. The English passage is your story reference, NOT a script to translate.",
-    "Retell its scenes in original, natural Hindi prose as if the novel had been written in Hindi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome; do not invent or omit plot developments.",
+    "Retell its scenes in original, natural Hindi prose as if the novel had been written in Hindi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome. Do not add any objects, actions, scenery, dialogue, motives or plot facts absent from the source.",
     "Do NOT translate sentence by sentence or paragraph by paragraph. Rebuild sentences, reorder phrasing within a scene, and combine or split paragraphs whenever Hindi storytelling flows better. Convey the meaning and feeling, not the English wording or metaphors.",
-    "Use only familiar everyday spoken or lightly formal Hindi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. Avoid literal English idioms, unnatural calques, invented words, and needless English words.",
-    "Use correct Hindi grammar and consistent Devanagari spellings of names. Write ONLY Hindi in Devanagari, with numbers in Devanagari; no Latin or other scripts. Preserve one episode heading if the source has one. Return only finished novel prose in plain text.",
+    "Use short, clear sentences and only familiar everyday spoken or lightly formal Hindi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. If unsure of a word, use a simpler common word instead. Avoid literal English idioms, unnatural calques, invented words, and needless English words. No extra poetic imagery.",
+    "Use correct Hindi grammar and consistent Devanagari spellings of names. Write ONLY Hindi in Devanagari, with numbers in Devanagari; no Latin or other scripts. If the source has an episode heading, start with एपिसोड and its Devanagari number, then a natural Hindi title. Return only finished novel prose in plain text.",
   ].join("\n"),
   mr: [
     "You are a contemporary Marathi novelist. The English passage is your story reference, NOT a script to translate.",
-    "Retell its scenes in original, natural Marathi prose as if the novel had been written in Marathi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome; do not invent or omit plot developments.",
+    "Retell its scenes in original, natural Marathi prose as if the novel had been written in Marathi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome. Do not add any objects, actions, scenery, dialogue, motives or plot facts absent from the source.",
     "Do NOT translate sentence by sentence or paragraph by paragraph. Rebuild sentences, reorder phrasing within a scene, and combine or split paragraphs whenever Marathi storytelling flows better. Convey the meaning and feeling, not the English wording or metaphors.",
-    "Use only familiar everyday spoken or lightly formal Marathi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. Avoid Hindi sentence structure and Hindi words where natural Marathi exists; avoid literal English idioms, invented words and needless English words.",
-    "Use correct Marathi grammar, verb forms and consistent Devanagari spellings of names. Write ONLY Marathi in Devanagari, with numbers in Devanagari; no Latin or other scripts. Preserve one episode heading if the source has one. Return only finished novel prose in plain text.",
+    "Use short, clear sentences and only familiar everyday spoken or lightly formal Marathi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. If unsure of a word, use a simpler common Marathi word instead. Avoid Hindi sentence structure and Hindi words where natural Marathi exists; avoid literal English idioms, invented words, needless English words and extra poetic imagery.",
+    "Use correct Marathi grammar, verb forms and consistent Devanagari spellings of names. Write ONLY Marathi in Devanagari, with numbers in Devanagari; no Latin or other scripts. If the source has an episode heading, start with एपिसोड and its Devanagari number, then a natural Marathi title. Return only finished novel prose in plain text.",
   ].join("\n"),
 };
 
-function chunkParagraphs(text: string, maxWords = 700): string[] {
+function chunkParagraphs(text: string, maxWords = 350): string[] {
   const chunks: string[] = [];
   let current: string[] = [];
   let count = 0;
@@ -240,13 +240,13 @@ export async function translatePart(
   const apiKey = getApiKey(data.lang);
   const out: string[] = [];
   for (const chunk of chunkParagraphs(data.english)) {
-    const context = (out.at(-1) ?? data.previousTranslated).slice(-1500);
+    const context = (out.at(-1) ?? data.previousTranslated).slice(-800);
     const call = (correction?: string) =>
       agnesChat({
         apiKey,
         progress,
         maxTokens: 8000,
-        temperature: correction ? 0.55 : 0.7,
+        temperature: correction ? 0.2 : 0.35,
         messages: [
           { role: "system", content: TRANSLATE_RULES[data.lang] },
           {
@@ -255,9 +255,11 @@ export async function translatePart(
               context
                 ? `Previous passage of your ${data.lang === "hi" ? "Hindi" : "Marathi"} novel (for continuity of names, voice and scene only — do NOT repeat it):\n"""\n${context}\n"""\n`
                 : "",
-              "If the passage has an episode heading, write one natural Devanagari heading with its number and title. Otherwise do not add a heading.",
-              `Write the next scene of your novel based on this English passage. Keep its story facts, not its sentence structure:\n"""\n${chunk}\n"""`,
-              correction ? `Your previous draft had this problem: ${correction}. Rewrite this scene in full; do not reuse the flawed draft.` : "",
+              /^Episode\s*\d+/im.test(chunk)
+                ? `Begin with exactly "एपिसोड ${String(chunk.match(/^Episode\s*(\d+)/im)?.[1] ?? "1").replace(/\d/g, (digit) => "०१२३४५६७८९"[Number(digit)] ?? digit)}: <natural title>". Do not use अध्याय or प्रकरण.`
+                : "Do not add any heading.",
+              `Write this section of your novel based on the English reference below. Keep every story fact, but not its sentence structure. Keep roughly the same amount of story: do not expand small passages into long scenes. Do not invent descriptions, details or dialogue:\n"""\n${chunk}\n"""`,
+              correction ? `Your previous draft had this problem: ${correction}. Rewrite the entire section in simple, idiomatic language; do not reuse the flawed draft.` : "",
             ].join("\n"),
           },
         ],
