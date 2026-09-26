@@ -181,8 +181,20 @@ export async function generateEpisodePart(
 
 
 const TRANSLATE_RULES: Record<"hi" | "mr", string> = {
-  hi: "You are an award-winning literary translator from English into natural, modern Hindi (Devanagari only). Translate faithfully, paragraph by paragraph: keep every event, line of dialogue and detail, add nothing, drop nothing. Use simple everyday Hindi that people actually speak and read in modern novels — not Sanskritised, not word-for-word. Every word must be a real, correctly spelled Hindi word. Transliterate character names consistently into Devanagari. Never output any Latin letters or other scripts. Output only the translation as plain text, keeping the blank lines between paragraphs.",
-  mr: "You are an award-winning literary translator from English into natural, modern Marathi (Devanagari only). Translate faithfully, paragraph by paragraph: keep every event, line of dialogue and detail, add nothing, drop nothing. Use simple, correct, everyday Marathi as written in modern Marathi novels — proper Marathi grammar and verb forms, not Hindi, not word-for-word. Every word must be a real, correctly spelled Marathi word; never invent words. Transliterate character names consistently into Devanagari. Never output any Latin letters or other scripts. Output only the translation as plain text, keeping the blank lines between paragraphs.",
+  hi: [
+    "You are a contemporary Hindi novelist. The English passage is your story reference, NOT a script to translate.",
+    "Retell its scenes in original, natural Hindi prose as if the novel had been written in Hindi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome; do not invent or omit plot developments.",
+    "Do NOT translate sentence by sentence or paragraph by paragraph. Rebuild sentences, reorder phrasing within a scene, and combine or split paragraphs whenever Hindi storytelling flows better. Convey the meaning and feeling, not the English wording or metaphors.",
+    "Use only familiar everyday spoken or lightly formal Hindi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. Avoid literal English idioms, unnatural calques, invented words, and needless English words.",
+    "Use correct Hindi grammar and consistent Devanagari spellings of names. Write ONLY Hindi in Devanagari, with numbers in Devanagari; no Latin or other scripts. Preserve one episode heading if the source has one. Return only finished novel prose in plain text.",
+  ].join("\n"),
+  mr: [
+    "You are a contemporary Marathi novelist. The English passage is your story reference, NOT a script to translate.",
+    "Retell its scenes in original, natural Marathi prose as if the novel had been written in Marathi first. Keep the same characters, relationships, event order, actions, clues, emotional turns and outcome; do not invent or omit plot developments.",
+    "Do NOT translate sentence by sentence or paragraph by paragraph. Rebuild sentences, reorder phrasing within a scene, and combine or split paragraphs whenever Marathi storytelling flows better. Convey the meaning and feeling, not the English wording or metaphors.",
+    "Use only familiar everyday spoken or lightly formal Marathi words, chosen for the character and situation. Dialogue should sound like real people talking; narration should be fluent and readable, never stiff, archaic, highly Sanskritised or speech-like. Avoid Hindi sentence structure and Hindi words where natural Marathi exists; avoid literal English idioms, invented words and needless English words.",
+    "Use correct Marathi grammar, verb forms and consistent Devanagari spellings of names. Write ONLY Marathi in Devanagari, with numbers in Devanagari; no Latin or other scripts. Preserve one episode heading if the source has one. Return only finished novel prose in plain text.",
+  ].join("\n"),
 };
 
 function chunkParagraphs(text: string, maxWords = 700): string[] {
@@ -203,15 +215,24 @@ function chunkParagraphs(text: string, maxWords = 700): string[] {
   return chunks;
 }
 
-function badTranslation(text: string, source: string): boolean {
+function adaptationProblems(text: string, source: string): string[] {
+  const problems: string[] = [];
   const dev = text.match(/[\u0900-\u097f]/g)?.length ?? 0;
   const lat = text.match(/[A-Za-z]/g)?.length ?? 0;
   const srcWords = source.split(/\s+/).length;
   const outWords = text.split(/\s+/).filter(Boolean).length;
-  return dev < 50 || lat > dev * 0.05 || outWords < srcWords * 0.5 || /(.)\1{15,}/u.test(text);
+  if (dev < 50 || outWords < srcWords * 0.5) problems.push("the story passage is incomplete");
+  if (lat > 0 || /[\u0590-\u08ff\u0980-\u0dff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u052f]/u.test(text)) {
+    problems.push("non-Devanagari writing remains");
+  }
+  if (/(.)\1{15,}/u.test(text)) problems.push("repeated, corrupted characters");
+  if (/^Episode\s*\d+/im.test(source) && !/^एपिसोड\s*[०-९]+/m.test(text)) {
+    problems.push("the episode heading is missing");
+  }
+  return problems;
 }
 
-/** Translates one finished English part into Hindi/Marathi, chunk by chunk, keeping names consistent. */
+/** Retells one finished English part as original Hindi/Marathi prose, scene by scene. */
 export async function translatePart(
   data: { lang: "hi" | "mr"; english: string; previousTranslated: string },
   progress?: AgnesProgress | undefined,
@@ -220,31 +241,37 @@ export async function translatePart(
   const out: string[] = [];
   for (const chunk of chunkParagraphs(data.english)) {
     const context = (out.at(-1) ?? data.previousTranslated).slice(-1500);
-    const call = (temperature: number) =>
+    const call = (correction?: string) =>
       agnesChat({
         apiKey,
         progress,
         maxTokens: 8000,
-        temperature,
+        temperature: correction ? 0.55 : 0.7,
         messages: [
           { role: "system", content: TRANSLATE_RULES[data.lang] },
           {
             role: "user",
             content: [
               context
-                ? `Previous translated passage (for name spelling and tone only — do NOT repeat it):\n"""\n${context}\n"""\n`
+                ? `Previous passage of your ${data.lang === "hi" ? "Hindi" : "Marathi"} novel (for continuity of names, voice and scene only — do NOT repeat it):\n"""\n${context}\n"""\n`
                 : "",
-              "Heading lines like \"Episode 3: Title\" become \"एपिसोड ३: <translated title>\".",
-              `Translate this English passage:\n"""\n${chunk}\n"""`,
+              "If the passage has an episode heading, write one natural Devanagari heading with its number and title. Otherwise do not add a heading.",
+              `Write the next scene of your novel based on this English passage. Keep its story facts, not its sentence structure:\n"""\n${chunk}\n"""`,
+              correction ? `Your previous draft had this problem: ${correction}. Rewrite this scene in full; do not reuse the flawed draft.` : "",
             ].join("\n"),
           },
         ],
       });
-    let text = cleanNovelText(await call(0.3));
-    for (let i = 0; i < 2 && badTranslation(text, chunk); i++) {
-      text = cleanNovelText(await call(0.2));
+    let text = cleanNovelText(await call());
+    let problems = adaptationProblems(text, chunk);
+    for (let i = 0; i < 2 && problems.length; i++) {
+      text = cleanNovelText(await call(problems.join(", ")));
+      problems = adaptationProblems(text, chunk);
     }
-    out.push(text.replace(/[A-Za-z]+/g, "").replace(/[ \t]{2,}/g, " "));
+    if (problems.length) {
+      throw new Error(`The ${data.lang === "hi" ? "Hindi" : "Marathi"} scene could not be completed cleanly (${problems.join(", ")}). Please retry this language.`);
+    }
+    out.push(text);
   }
   return { text: out.join("\n\n") };
 }
